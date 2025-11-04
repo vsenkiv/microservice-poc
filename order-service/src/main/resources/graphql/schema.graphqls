@@ -1,0 +1,35 @@
+scalar BigDecimal
+scalar Long
+
+type Query {
+    ping: String
+    getOrder(orderId: Long!): OrderResponse
+    getOrders(userId: Long): [OrderResponse]
+}
+
+type OrderResponse {
+    id: String
+    userId: Long
+    userName: String
+    totalAmount: BigDecimal
+    status: String
+    paymentStatus: String
+    items: [OrderItemResponse]
+    user: UserResponse
+}
+
+type OrderItemResponse {
+    productId: String
+    productName: String
+    quantity: Int
+    unitPrice: BigDecimal
+    totalPrice: BigDecimal
+}
+
+type UserResponse {
+    id: Long
+    username: String
+    email: String
+    firstName: String
+    lastName: String
+}

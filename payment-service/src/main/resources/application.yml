@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: payment-service
+    address: 0.0.0.0
+
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/payment_db}
+      database: payment_db
+      auto-index-creation: true
+
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: payment-service-group
+      auto-offset-reset: earliest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 100
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+    topic:
+      order-events: order-events
+
+  profiles:
+    active: local
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/microservices_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+
+# Management and metrics configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,400ms
+  # IMPORTANT: Configure tracing
+  tracing:
+    sampling:
+      probability: 1.0
+    enabled: true
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318/v1/traces}
+      compression: gzip
+
+# OpenTelemetry Configuration
+otel:
+  service:
+    name: payment-service
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318}
+      protocol: http/protobuf
+      compression: gzip
+      timeout: 10s
+  resource:
+    attributes:
+      service.name: payment-service
+      service.version: 1.0.0
+      service.namespace: microservices
+      deployment.environment: ${ENVIRONMENT:local}
+  instrumentation:
+    spring-web:
+      enabled: true
+    jdbc:
+      enabled: true
+    jpa:
+      enabled: true
+    http-client:
+      enabled: true
+
+logging:
+  level:
+    com.microservices.user: INFO
+    org.springframework.web: INFO
+    io.opentelemetry: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+server:
+  port: 8080
+  address: 0.0.0.0

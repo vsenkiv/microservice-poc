@@ -1,0 +1,143 @@
+spring:
+  application:
+    name: payment-service
+    address: 0.0.0.0
+
+  profiles:
+    active: local
+
+  # Embedded MongoDB for testing
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/payment_test_db
+      database: payment_test_db
+      auto-index-creation: true
+
+  # Embedded Kafka Configuration for testing
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
+    consumer:
+      group-id: payment-service-test-group
+      auto-offset-reset: earliest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 10  # Smaller for tests
+        fetch.min.bytes: 1
+        fetch.max.wait.ms: 100  # Faster for tests
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      retries: 0  # No retries in tests
+      acks: 1  # Faster acknowledgment for tests
+    topic:
+      order-events: test-order-events
+
+  # Test transaction management
+  transaction:
+    default-timeout: 5s
+
+# Test-specific configuration
+test:
+  kafka:
+    embedded: true
+  database:
+    cleanup: true
+  tracing:
+    enabled: false
+  metrics:
+    enabled: false
+
+# Completely disable management endpoints and metrics for testing
+management:
+  endpoints:
+    enabled-by-default: false  # Disable all endpoints by default
+    web:
+      exposure:
+        include: health  # Only include health endpoint if needed
+      base-path: /actuator
+  endpoint:
+    health:
+      enabled: true  # Keep health endpoint for basic checks
+      show-details: never
+    metrics:
+      enabled: false  # Disable metrics endpoint
+    prometheus:
+      enabled: false  # Disable prometheus endpoint
+    info:
+      enabled: false
+
+  # Completely disable metrics collection
+  metrics:
+    enable:
+      all: false  # Disable all metrics
+    export:
+      prometheus:
+        enabled: false  # Disable prometheus export
+    distribution:
+      percentiles-histogram:
+        http.server.requests: false
+      slo:
+        http.server.requests: false
+    web:
+      server:
+        auto-time-requests: false  # Disable HTTP request timing
+
+  # Completely disable tracing and OTLP
+  tracing:
+    enabled: false  # Disable tracing completely
+    sampling:
+      probability: 0.0  # No sampling
+  otlp:
+    tracing:
+      endpoint: ""  # Empty endpoint
+      compression: none
+    metrics:
+      endpoint: ""  # Empty endpoint
+    logs:
+      endpoint: ""  # Empty endpoint
+
+# Completely disable OpenTelemetry for tests
+otel:
+  sdk:
+    disabled: true  # Disable OpenTelemetry SDK completely
+  service:
+    name: payment-service-test
+  exporter:
+    otlp:
+      endpoint: ""  # Empty endpoint
+      protocol: none
+      compression: none
+      timeout: 0s
+    none:
+      enabled: true  # Use no-op exporter
+  resource:
+    attributes: {}  # Empty attributes
+  instrumentation:
+    spring-web:
+      enabled: false  # Disable web instrumentation
+    jdbc:
+      enabled: false  # Disable JDBC instrumentation
+    jpa:
+      enabled: false  # Disable JPA instrumentation
+    http-client:
+      enabled: false  # Disable HTTP client instrumentation
+    kafka:
+      enabled: false  # Disable Kafka instrumentation
+    micrometer:
+      enabled: false  # Disable Micrometer integration
+
+logging:
+  level:
+    com.microservices.user: DEBUG
+    org.springframework.web: DEBUG
+    io.opentelemetry: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+server:
+  port: 8080
+  address: 0.0.0.0
+

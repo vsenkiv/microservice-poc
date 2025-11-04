@@ -1,0 +1,79 @@
+{
+  "id": null,
+  "uid": "microservices-logs",
+  "title": "Microservices Logs Dashboard",
+  "description": "Logs dashboard for microservices",
+  "tags": ["microservices", "logs", "elasticsearch"],
+  "timezone": "browser",
+  "editable": true,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "10s",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Recent Logs",
+      "type": "logs",
+      "targets": [
+        {
+          "refId": "A",
+          "query": "logtype:otel-logs",
+          "timeField": "@timestamp"
+        }
+      ],
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 2,
+      "title": "Error Logs Count",
+      "type": "stat",
+      "targets": [
+        {
+          "refId": "A",
+          "query": "logtype:otel-logs AND severity:ERROR",
+          "timeField": "@timestamp"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      }
+    },
+    {
+      "id": 3,
+      "title": "Log Levels Distribution",
+      "type": "piechart",
+      "targets": [
+        {
+          "refId": "A",
+          "query": "logtype:otel-logs",
+          "timeField": "@timestamp"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 12
+      }
+    }
+  ]
+}

@@ -1,0 +1,222 @@
+{
+  "id": null,
+  "uid": "microservices-observability",
+  "title": "Microservices Observability Dashboard",
+  "description": "Complete observability dashboard for microservices",
+  "tags": ["microservices", "observability", "spring-boot", "elasticsearch"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+  },
+  "refresh": "10s",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Health Status",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job=\"order-service-actuator\"}",
+          "refId": "A",
+          "legendFormat": "Order Service"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "DOWN"},
+                "1": {"color": "green", "text": "UP"}
+              },
+              "type": "value"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "HTTP Request Rate",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "rate(http_server_request_duration_seconds_count{job=\"order-service-actuator\"}[5m])",
+          "refId": "A",
+          "legendFormat": "{{http_request_method}} {{http_route}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "yAxes": [
+        {
+          "label": "Requests/sec",
+          "min": 0
+        },
+        {
+          "show": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP Request Duration (Percentiles)",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_server_request_duration_seconds_bucket{job=\"order-service-actuator\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_server_request_duration_seconds_bucket{job=\"order-service-actuator\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "yAxes": [
+        {
+          "label": "Duration (seconds)",
+          "min": 0
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "JVM Memory Usage",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{job=\"order-service-actuator\", area=\"heap\"}",
+          "refId": "A",
+          "legendFormat": "Heap Used"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{job=\"order-service-actuator\", area=\"heap\"}",
+          "refId": "B",
+          "legendFormat": "Heap Max"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "yAxes": [
+        {
+          "label": "Bytes",
+          "min": 0
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Elasticsearch Cluster Health",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "elasticsearch_cluster_health_status",
+          "refId": "A",
+          "legendFormat": "Cluster Status"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 16
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {"color": "red", "text": "Red"},
+                "1": {"color": "yellow", "text": "Yellow"},
+                "2": {"color": "green", "text": "Green"}
+              },
+              "type": "value"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Elasticsearch Documents Count",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "elasticsearch_indices_docs",
+          "refId": "A",
+          "legendFormat": "Total Documents"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 16
+      }
+    },
+    {
+      "id": 12,
+      "title": "Elasticsearch Index Size",
+      "type": "graph",
+      "targets": [
+        {
+          "expr": "elasticsearch_indices_store_size_bytes",
+          "refId": "A",
+          "legendFormat": "{{index}}"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "yAxes": [
+        {
+          "label": "Bytes",
+          "min": 0
+        }
+      ]
+    }
+  ]
+}

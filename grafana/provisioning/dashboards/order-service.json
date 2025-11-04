@@ -1,0 +1,40 @@
+{
+  "dashboard": {
+    "title": "Order Service Monitoring",
+    "panels": [
+      {
+        "title": "API Requests per Second",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{job=\"order-service-actuator\"}[5m])) by (uri)",
+            "legendFormat": "{{uri}}"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{job=\"order-service-actuator\", status=~\"4..|5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"order-service-actuator\"}[5m]))",
+            "legendFormat": "Error Rate"
+          }
+        ]
+      },
+      {
+        "title": "Recent Logs",
+        "type": "logs",
+        "targets": [
+          {
+            "query": "service_name:order-service",
+            "refId": "A"
+          }
+        ],
+        "datasource": {
+          "type": "elasticsearch"
+        }
+      }
+    ]
+  }
+}

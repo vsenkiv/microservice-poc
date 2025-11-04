@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: user-service-test
+
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+    defer-datasource-initialization: true
+
+  h2:
+    console:
+      enabled: true
+
+# Disable OpenTelemetry for tests
+management:
+  tracing:
+    enabled: false
+
+# Mock service URLs for integration tests
+inventory:
+  service:
+    url: http://localhost:${wiremock.server.port:8089}
+
+user:
+  service:
+    url: http://localhost:${wiremock.server.port:8089}
+
+payment:
+  service:
+    url: http://localhost:${wiremock.server.port:8089}
+
+# Disable OpenTelemetry
+otel:
+  sdk:
+    disabled: true
+  instrumentation:
+    spring-boot-actuator:
+      enabled: false
+
+logging:
+  level:
+    com.microservices.order: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.test: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - [%thread] %-5level %logger{36} - %msg%n"
+
+server:
+  port: 0  # Random port for tests

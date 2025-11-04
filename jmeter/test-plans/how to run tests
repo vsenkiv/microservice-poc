@@ -1,0 +1,5 @@
+# Test standard threads with all scenarios (light, medium, heavy, stress)
+docker-compose exec -e ORDER_SERVICE_HOST=order-service -e ORDER_SERVICE_PORT=8080 jmeter bash /jmeter/scripts/run-load-test.sh standard
+
+# Test virtual threads with all scenarios
+docker-compose exec -e ORDER_SERVICE_HOST=order-service-virtual-thread -e ORDER_SERVICE_PORT=8080 jmeter bash /jmeter/scripts/run-load-test.sh virtual

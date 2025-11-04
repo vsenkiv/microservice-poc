@@ -1,0 +1,249 @@
+spring:
+  application:
+    name: order-service
+    address: 0.0.0.0
+
+  profiles:
+    active: local
+
+  graphql:
+    web:
+      path: /graphql
+      graphiql:
+        enabled: true
+        path: /graphiql
+    schema:
+      locations: classpath:graphql/
+      file-extensions: .graphqls,.gqls
+
+  # ✅ Redis Configuration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2000ms
+        shutdown-timeout: 100ms
+
+  # ✅ Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000  # 10 minutes in milliseconds
+      cache-null-values: false
+      use-key-prefix: true
+      key-prefix: "order-service:"
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    topic:
+      order-events: order-events
+
+  # OAuth2 and Security Configuration
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:****-9is88d9jcdcbn1kf25vo25fo3nat59gd.apps.googleusercontent.com}
+            client-secret: ${GOOGLE_CLIENT_SECRET:****}
+            scope:
+              - openid
+              - profile
+              - email
+            redirect-uri: "http://localhost:8081/login/oauth2/code/google"
+            client-name: Google
+        provider:
+          google:
+            issuer-uri: https://accounts.google.com
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+            jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+
+      resourceserver:
+        jwt:
+          issuer-uri: https://accounts.google.com
+          jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/microservices_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+# Management and metrics configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,400ms
+  tracing:
+    sampling:
+      probability: 1.0
+    enabled: true
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318/v1/traces}
+      compression: gzip
+
+# Service URLs
+inventory:
+  service:
+    url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+
+user:
+  service:
+    url: ${USER_SERVICE_URL:http://user-service:8083}
+
+payment:
+  service:
+    url: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+
+# OpenTelemetry Configuration
+otel:
+  service:
+    name: order-service
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318}
+      protocol: http/protobuf
+      compression: gzip
+      timeout: 10s
+  resource:
+    attributes:
+      service.name: order-service
+      service.version: 1.0.0
+      service.namespace: microservices
+      deployment.environment: ${ENVIRONMENT:local}
+  instrumentation:
+    spring-web:
+      enabled: true
+    jdbc:
+      enabled: true
+    jpa:
+      enabled: true
+    http-client:
+      enabled: true
+
+logging:
+  level:
+    com.microservices.order: INFO
+    org.springframework.web: INFO
+    org.springframework.cache: DEBUG  # ✅ Cache logging
+    io.opentelemetry: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+server:
+  port: 8080
+  address: 0.0.0.0
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory-service:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+        ignoreExceptions:
+          - java.lang.IllegalArgumentException
+
+  retry:
+    instances:
+      inventory-service:
+        maxAttempts: 3
+        waitDuration: 100ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - java.lang.RuntimeException
+        ignoreExceptions:
+          - java.lang.IllegalArgumentException
+
+  timelimiter:
+    instances:
+      inventory-service:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+
+# Axon Framework Configuration
+axon:
+  axonserver:
+    servers: ${AXON_SERVER_URL:localhost:8124}
+    enabled: true
+    context: default
+    initial-nr-of-permits: 5000
+    nr-of-new-permits: 500
+    new-permits-threshold: 3000
+  serializer:
+    general: jackson
+    events: jackson
+    messages: jackson
+  eventhandling:
+    processors:
+      OrderProcessingSagaProcessor:
+        mode: tracking
+        source: eventStore
+  eventstore:
+    type: axonserver
+  jpa:
+    enabled: false
+  saga:
+    store-type: axonserver

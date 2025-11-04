@@ -1,0 +1,108 @@
+spring:
+  application:
+    name: user-service
+    address: 0.0.0.0
+
+  profiles:
+    active: local
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/microservices_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+
+# Management and metrics configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,400ms
+  # IMPORTANT: Configure tracing
+  tracing:
+    sampling:
+      probability: 1.0
+    enabled: true
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318/v1/traces}
+      compression: gzip
+
+# Service URLs
+order:
+  service:
+    url: ${ORDER_SERVICE_URL:http://order-service:8080}
+
+inventory:
+  service:
+    url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+
+payment:
+  service:
+    url: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+
+# OpenTelemetry Configuration
+otel:
+  service:
+    name: user-service
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4318}
+      protocol: http/protobuf
+      compression: gzip
+      timeout: 10s
+  resource:
+    attributes:
+      service.name: user-service
+      service.version: 1.0.0
+      service.namespace: microservices
+      deployment.environment: ${ENVIRONMENT:local}
+  instrumentation:
+    spring-web:
+      enabled: true
+    jdbc:
+      enabled: true
+    jpa:
+      enabled: true
+    http-client:
+      enabled: true
+
+logging:
+  level:
+    com.microservices.user: DEBUG
+    org.springframework.web: DEBUG
+    io.opentelemetry: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n"
+
+server:
+  port: 8080
+  address: 0.0.0.0
+

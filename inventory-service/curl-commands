@@ -1,0 +1,94 @@
+API Usage Examples
+
+### Check Inventory Availability:
+```bash
+curl -X GET "http://localhost:8082/api/inventory/check/501?quantity=2"
+```
+
+Response:
+```json
+{
+  "productId": 501,
+  "productName": "Premium Laptop",
+  "availableQuantity": 50,
+  "available": true,
+  "price": 1200.00
+}
+```
+
+### Get All Products:
+```bash
+curl -X GET "http://localhost:8082/api/inventory/products"
+```
+
+### Get Product by ID:
+```bash
+curl -X GET "http://localhost:8082/api/inventory/products/501"
+```
+
+### Create Product (Requires Authentication):
+```bash
+curl -X POST "http://localhost:8082/api/inventory/products" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "sku": "ELEC-NEW-001",
+    "name": "New Product",
+    "description": "Product description",
+    "category": "Electronics",
+    "price": 299.99,
+    "quantity": 100,
+    "reorderLevel": 10,
+    "reorderQuantity": 50
+  }'
+```
+
+### Reserve Stock:
+```bash
+curl -X POST "http://localhost:8082/api/inventory/reservations" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productId": 501,
+    "orderId": 1,
+    "quantity": 2,
+    "expirationMinutes": 15
+  }'
+```
+
+### Adjust Stock (Requires Authentication):
+```bash
+curl -X POST "http://localhost:8082/api/inventory/products/501/adjust" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "quantity": 10,
+    "adjustmentType": "RESTOCK",
+    "notes": "Restocking from supplier"
+  }'
+```
+
+### Search Products:
+```bash
+curl -X GET "http://localhost:8082/api/inventory/products/search?keyword=laptop"
+```
+
+### Get Products by Category:
+```bash
+curl -X GET "http://localhost:8082/api/inventory/products/category/Electronics"
+```
+
+### Get Products Needing Reorder (Requires Authentication):
+```bash
+curl -X GET "http://localhost:8082/api/inventory/products/reorder" \
+  -H "Authorization: Bearer <token>"
+```
+
+### Fulfill Reservation:
+```bash
+curl -X POST "http://localhost:8082/api/inventory/reservations/order/1/product/501/fulfill"
+```
+
+### Release Reservation:
+```bash
+curl -X DELETE "http://localhost:8082/api/inventory/reservations/order/1/product/501"
+```

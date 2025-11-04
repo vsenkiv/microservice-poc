@@ -1,0 +1,5 @@
+#order service with the standrard threads
+docker-compose exec jmeter jmeter -n     -t /test-plans/direct-property-test.jmx     -JORDER_SERVICE_HOST=order-service     -JORDER_SERVICE_PORT=8080     -JTHREADS=3     -JRAMP_UP=5     -JDURATION=15     -l /results/direct-test.jtl
+
+#order service with virtual threads
+docker-compose exec jmeter jmeter -n     -t /test-plans/direct-property-test.jmx     -JORDER_SERVICE_HOST=order-service-virtual-threads     -JORDER_SERVICE_PORT=8080     -JTHREADS=3     -JRAMP_UP=5     -JDURATION=15     -l /results/direct-test.jtl

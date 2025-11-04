@@ -1,0 +1,518 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: microservices-postgres
+    environment:
+      POSTGRES_DB: microservices_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - microservices-network
+
+    # OTLP Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yml" ]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133:13133" # health_check extension
+    depends_on:
+      - jaeger
+    networks:
+      - microservices-network
+
+  # Prometheus (Optional - for metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - microservices-network
+
+  # Grafana (for metrics visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - elasticsearch
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  # Jaeger
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector HTTP
+      - "14250:14250"  # Jaeger collector gRPC
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - microservices-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.ml.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=60s || exit 1" ]
+      interval: 30s
+      timeout: 60s
+      retries: 10
+      start_period: 60s
+
+  # Elasticsearch Exporter - Fixed dependencies and retry logic
+  elasticsearch-exporter:
+    image: quay.io/prometheuscommunity/elasticsearch-exporter:latest
+    container_name: elasticsearch-exporter
+    restart: unless-stopped
+    command:
+      - '--es.uri=http://elasticsearch:9200'
+      - '--es.timeout=30s'
+      - '--web.listen-address=:9114'
+      - '--log.level=info'
+    ports:
+      - "9114:9114"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy  # Wait for Elasticsearch to be healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9114/metrics || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # Add restart policy to handle connection issues
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+
+  # Kibana for log visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Order Service
+  order-service:
+    image: order-service-image:latest
+    container_name: order-service
+    ports:
+      - "8081:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/microservices_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - INVENTORY_SERVICE_URL=http://inventory-service:8080
+      - USER_SERVICE_URL=http://user-service:8080
+      - PAYMENT_SERVICE_URL=http://payment-service:8080
+      # ✅ Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      # OTEL Configuration
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=order-service
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=order-service,service.version=1.0.0
+      # Metrics configuration
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=*
+      - MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Security configuration
+      - GOOGLE_CLIENT_ID=***
+      - GOOGLE_CLIENT_SECRET=***
+      - AXON_AXONSERVER_SERVERS=axon-server:8124
+    depends_on:
+      - postgres
+      - redis
+      - otel-collector
+      - jaeger
+      - elasticsearch
+      - axon-server
+    networks:
+      - microservices-network
+    healthcheck: # Add this
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # User Service
+  user-service:
+    image: user-service-image:latest
+    container_name: user-service
+    ports:
+      - "8083:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/microservices_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - INVENTORY_SERVICE_URL=http://inventory-service:8080
+      - PAYMENT_SERVICE_URL=http://payment-service:8080
+      # OTEL Configuration
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=user-service
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=inventory-service,service.version=1.0.0
+      # Metrics configuration
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=*
+      - MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Security configuration
+      - GOOGLE_CLIENT_ID=***
+      - GOOGLE_CLIENT_SECRET=***
+      - AXON_AXONSERVER_SERVERS=axon-server:8124
+    depends_on:
+      - postgres
+      - otel-collector
+      - jaeger
+      - elasticsearch
+      - order-service
+    networks:
+      - microservices-network
+    healthcheck: # Add this
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 60s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+
+  # Inventory Service
+  inventory-service:
+    image: inventory-service-image:latest
+    container_name: inventory-service
+    ports:
+      - "8084:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=local
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/microservices_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - INVENTORY_SERVICE_URL=http://inventory-service:8080
+      - PAYMENT_SERVICE_URL=http://payment-service:8080
+      # OTEL Configuration
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=user-service
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=inventory-service,service.version=1.0.0
+      # Metrics configuration
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=*
+      - MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      # Security configuration
+      - GOOGLE_CLIENT_ID=***
+      - GOOGLE_CLIENT_SECRET=***
+      - AXON_AXONSERVER_SERVERS=axon-server:8124
+    depends_on:
+      - postgres
+      - otel-collector
+      - jaeger
+      - elasticsearch
+      - order-service
+    networks:
+      - microservices-network
+    healthcheck: # Add this
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 60s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+
+  # Payment Service
+  payment-service:
+    image: payment-service-image:latest
+    container_name: payment-service
+    ports:
+      - "8085:8080"
+    environment:
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/payment_db?authSource=admin
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - SPRING_PROFILES_ACTIVE=local
+      # OTEL Configuration
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=user-service
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=payment-service,service.version=1.0.0
+      # Metrics configuration
+      - MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=*
+      - MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED=true
+      - MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED=true
+      - AXON_AXONSERVER_SERVERS=axon-server:8124
+
+    depends_on:
+      - postgres
+      - otel-collector
+      - jaeger
+      - elasticsearch
+      - order-service
+      - kafka
+      - mongodb
+    networks:
+      - microservices-network
+    healthcheck: # Add this
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 60s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      # Explicitly disable KRaft mode
+      KAFKA_NUM_PARTITIONS: 3
+
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Kafka UI (Optional - for monitoring)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - microservices-network
+
+  # MongoDB
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: payment_db
+    volumes:
+      - mongodb-data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mongo Express (Optional - MongoDB UI)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    depends_on:
+      - mongodb
+    ports:
+      - "8091:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    networks:
+      - microservices-network
+
+
+  # JMeter for load testing
+  jmeter:
+    image: justb4/jmeter:latest
+    container_name: jmeter
+    entrypoint: [ "sh", "-c" ]  # Override the entrypoint
+    command: [ "tail -f /dev/null" ]  # Keep container running
+    volumes:
+      - ./jmeter:/jmeter
+      - ./jmeter/test-plans:/test-plans
+      - ./jmeter/results:/results
+    working_dir: /jmeter
+    networks:
+      - microservices-network
+    depends_on:
+      - order-service
+      - user-service
+      #- order-service-virtual-threads
+    # Keep container running for interactive use
+    tty: true
+    stdin_open: true
+
+  # Axon Server
+  axon-server:
+    image: axoniq/axonserver:latest
+    container_name: axon-server
+    ports:
+      - "8024:8024"  # HTTP port
+      - "8124:8124"  # gRPC port
+    environment:
+      - AXONIQ_AXONSERVER_NAME=axon-server
+      - AXONIQ_AXONSERVER_HOSTNAME=axon-server
+    volumes:
+      - axon_data:/axonserver/data
+      - axon_events:/axonserver/events
+      - axon_config:/axonserver/config
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8024/actuator/health"]
+      interval: 20s
+      timeout: 20s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ""
+    volumes:
+      - redis_data:/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+    # ✅ Redis Commander (Optional - Redis UI)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    hostname: redis-commander
+    ports:
+      - "8092:8099"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - microservices-network
+
+
+volumes:
+  postgres_data:
+  grafana_data:
+  prometheus_data:
+  elasticsearch_data:
+  otel_logs:
+  mongodb-data:
+  axon_data:
+  axon_events:
+  axon_config:
+  redis_data:
+
+networks:
+  microservices-network:
+    driver: bridge

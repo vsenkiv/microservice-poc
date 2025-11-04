@@ -1,0 +1,557 @@
+@startuml microservices-architecture
+!theme aws-orange
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Microservices Architecture Overview
+
+Person(user, "User", "End user accessing the system")
+
+Container_Boundary(web, "Web Layer") {
+    Container(frontend, "Frontend", "React/Angular", "User interface")
+}
+
+Container_Boundary(services, "Microservices Layer") {
+    Container(order, "Order Service", "Spring Boot", "Handles order management and orchestration")
+    Container(inventory, "Inventory Service", "Spring Boot", "Manages product inventory and stock")
+    Container(user_service, "User Service", "Spring Boot", "Manages user profiles and authentication")
+    Container(payment, "Payment Service", "Spring Boot + Reactive", "Processes payments and transactions")
+}
+
+Container_Boundary(data, "Data Layer") {
+    ContainerDb(postgres_order, "Order DB", "PostgreSQL", "Order and order items data")
+    ContainerDb(postgres_inventory, "Inventory DB", "PostgreSQL", "Product and stock data")
+    ContainerDb(postgres_user, "User DB", "PostgreSQL", "User profiles and addresses")
+    ContainerDb(mongo_payment, "Payment DB", "MongoDB", "Payment transactions and events")
+    ContainerDb(redis, "Redis Cache", "Redis", "Caching layer")
+}
+
+Container_Boundary(messaging, "Messaging & Events") {
+    Container(kafka, "Apache Kafka", "Event Streaming", "Event-driven communication")
+    Container(axon, "Axon Server", "CQRS/ES", "Command/Query separation and Event Sourcing")
+}
+
+Container_Boundary(monitoring, "Observability") {
+    Container(prometheus, "Prometheus", "Metrics", "Metrics collection")
+    Container(grafana, "Grafana", "Dashboards", "Metrics visualization")
+    Container(jaeger, "Jaeger", "Tracing", "Distributed tracing")
+    Container(elk, "ELK Stack", "Logging", "Centralized logging")
+}
+
+' User interactions
+Rel(user, frontend, "Uses", "HTTPS")
+Rel(frontend, order, "API calls", "REST/HTTP")
+Rel(frontend, inventory, "API calls", "REST/HTTP")
+Rel(frontend, user_service, "API calls", "REST/HTTP")
+Rel(frontend, payment, "API calls", "REST/HTTP")
+
+' Service-to-service communication
+Rel(order, inventory, "Check stock", "REST/HTTP")
+Rel(order, user_service, "Validate user", "REST/HTTP")
+Rel(order, payment, "Process payment", "Events/HTTP")
+
+' Data connections
+Rel(order, postgres_order, "Reads/Writes", "JDBC")
+Rel(inventory, postgres_inventory, "Reads/Writes", "JDBC")
+Rel(user_service, postgres_user, "Reads/Writes", "JDBC")
+Rel(payment, mongo_payment, "Reads/Writes", "Reactive MongoDB")
+
+' Caching
+Rel(order, redis, "Cache user data", "Redis Protocol")
+Rel(inventory, redis, "Cache product data", "Redis Protocol")
+
+' Event-driven communication
+Rel(order, kafka, "Publishes events", "Kafka Protocol")
+Rel(payment, kafka, "Consumes events", "Kafka Protocol")
+Rel(order, axon, "Commands/Events", "Axon Protocol")
+
+' Monitoring connections
+Rel(order, prometheus, "Metrics", "HTTP")
+Rel(inventory, prometheus, "Metrics", "HTTP")
+Rel(user_service, prometheus, "Metrics", "HTTP")
+Rel(payment, prometheus, "Metrics", "HTTP")
+
+@enduml
+
+@startuml order-service-detail
+!theme aws-orange
+title Order Service - Detailed Architecture
+
+package "Order Service" {
+    [OrderController] <<RestController>>
+    [OrderService] <<Service>>
+    [OrderEventPublisher] <<Component>>
+    [InventoryServiceClient] <<FeignClient>>
+    [UserServiceClient] <<FeignClient>>
+    [AuthenticationFacade] <<Component>>
+    [OrderRepository] <<Repository>>
+    [OrderItemRepository] <<Repository>>
+
+    package "CQRS/Event Sourcing" {
+        [CommandGateway] <<Axon>>
+        [CreateOrderCommand] <<Command>>
+        [OrderAggregate] <<Aggregate>>
+        [OrderSaga] <<Saga>>
+    }
+
+    package "Security" {
+        [SecurityConfiguration] <<Configuration>>
+        [OAuth2ResourceServer] <<Security>>
+    }
+
+    package "Caching" {
+        [CacheConfiguration] <<Configuration>>
+        [RedisTemplate] <<Cache>>
+    }
+
+    package "Circuit Breaker" {
+        [CircuitBreakerConfiguration] <<Resilience4j>>
+        [InventoryValidationService] <<Service>>
+    }
+}
+
+package "External Dependencies" {
+    database "PostgreSQL" as postgres_order {
+        [orders table]
+        [order_items table]
+    }
+
+    queue "Kafka" as kafka {
+        [order-events topic]
+    }
+
+    database "Redis" as redis_cache {
+        [user cache]
+        [inventory cache]
+    }
+
+    cloud "Axon Server" as axon_server {
+        [Event Store]
+        [Command Bus]
+    }
+}
+
+' Controller connections
+[OrderController] --> [OrderService] : creates/queries orders
+[OrderController] --> [CommandGateway] : sends SAGA commands
+[OrderController] --> [AuthenticationFacade] : gets user context
+
+' Service connections
+[OrderService] --> [OrderRepository] : persists orders
+[OrderService] --> [OrderItemRepository] : persists order items
+[OrderService] --> [InventoryServiceClient] : validates stock
+[OrderService] --> [UserServiceClient] : validates users
+[OrderService] --> [OrderEventPublisher] : publishes events
+[OrderService] --> [RedisTemplate] : caches data
+
+' Circuit breaker
+[InventoryValidationService] --> [InventoryServiceClient] : with circuit breaker
+[OrderService] --> [InventoryValidationService] : validates inventory
+
+' CQRS/ES connections
+[CommandGateway] --> [CreateOrderCommand] : dispatches
+[CreateOrderCommand] --> [OrderAggregate] : handled by
+[OrderAggregate] --> [OrderSaga] : triggers
+[OrderSaga] --> axon_server : stores events
+
+' Data connections
+[OrderRepository] --> postgres_order : JDBC
+[OrderItemRepository] --> postgres_order : JDBC
+[OrderEventPublisher] --> kafka : publishes
+[RedisTemplate] --> redis_cache : caching
+
+@enduml
+
+@startuml inventory-service-detail
+!theme aws-orange
+title Inventory Service - Detailed Architecture
+
+package "Inventory Service" {
+    [InventoryController] <<RestController>>
+    [InventoryService] <<Service>>
+    [ProductRepository] <<Repository>>
+    [ReservationRepository] <<Repository>>
+    [StockMovementRepository] <<Repository>>
+
+    package "Domain Models" {
+        [Product] <<Entity>>
+        [StockReservation] <<Entity>>
+        [StockMovement] <<Entity>>
+    }
+
+    package "DTOs" {
+        [InventoryResponse] <<DTO>>
+        [ProductResponse] <<DTO>>
+        [CreateProductRequest] <<DTO>>
+        [ReservationRequest] <<DTO>>
+        [StockAdjustmentRequest] <<DTO>>
+    }
+
+    package "Business Logic" {
+        [StockManager] <<Component>>
+        [ReservationManager] <<Component>>
+        [InventoryValidator] <<Component>>
+    }
+}
+
+package "External Dependencies" {
+    database "PostgreSQL" as postgres_inventory {
+        [products table]
+        [stock_reservations table]
+        [stock_movements table]
+    }
+
+    database "Redis" as redis_inventory {
+        [product cache]
+        [stock cache]
+    }
+}
+
+' Controller to Service
+[InventoryController] --> [InventoryService] : manages inventory operations
+
+' Service to Repositories
+[InventoryService] --> [ProductRepository] : product CRUD
+[InventoryService] --> [ReservationRepository] : reservation management  
+[InventoryService] --> [StockMovementRepository] : stock tracking
+
+' Service to Business Logic
+[InventoryService] --> [StockManager] : stock operations
+[InventoryService] --> [ReservationManager] : reservation logic
+[InventoryService] --> [InventoryValidator] : validation rules
+
+' Repository to Database
+[ProductRepository] --> postgres_inventory : JDBC
+[ReservationRepository] --> postgres_inventory : JDBC
+[StockMovementRepository] --> postgres_inventory : JDBC
+
+' Caching
+[InventoryService] --> redis_inventory : caching
+
+' API Endpoints (shown as notes)
+note right of [InventoryController]
+    GET /api/inventory/check/{productId}
+    POST /api/inventory/products
+    GET /api/inventory/products/{productId}
+    GET /api/inventory/products
+    POST /api/inventory/reservations
+    DELETE /api/inventory/reservations/order/{orderId}
+    POST /api/inventory/products/{productId}/adjust
+end note
+
+@enduml
+
+@startuml user-service-detail
+!theme aws-orange
+title User Service - Detailed Architecture
+
+package "User Service" {
+    [UserController] <<RestController>>
+    [UserService] <<Service>>
+    [UserRepository] <<Repository>>
+    [AddressRepository] <<Repository>>
+
+    package "Domain Models" {
+        [User] <<Entity>>
+        [Address] <<Entity>>
+    }
+
+    package "DTOs" {
+        [UserResponse] <<DTO>>
+        [CreateUserRequest] <<DTO>>
+        [UpdateUserRequest] <<DTO>>
+        [AddressDto] <<DTO>>
+    }
+
+    package "Validation" {
+        [UserValidator] <<Component>>
+        [EmailValidator] <<Component>>
+    }
+
+    package "Security" {
+        [PasswordEncoder] <<Component>>
+        [UserAuthenticationService] <<Service>>
+    }
+}
+
+package "External Dependencies" {
+    database "PostgreSQL" as postgres_user {
+        [users table]
+        [addresses table]
+    }
+
+    database "Redis" as redis_user {
+        [user session cache]
+        [user profile cache]
+    }
+}
+
+' Controller to Service
+[UserController] --> [UserService] : user operations
+
+' Service connections
+[UserService] --> [UserRepository] : user CRUD
+[UserService] --> [AddressRepository] : address management
+[UserService] --> [UserValidator] : validation
+[UserService] --> [EmailValidator] : email validation
+[UserService] --> [PasswordEncoder] : password security
+[UserService] --> [UserAuthenticationService] : authentication
+
+' Repository connections
+[UserRepository] --> postgres_user : JDBC
+[AddressRepository] --> postgres_user : JDBC
+
+' Caching
+[UserService] --> redis_user : user caching
+
+' API Endpoints
+note right of [UserController]
+    POST /api/users
+    GET /api/users/{userId}
+    GET /api/users/username/{username}
+    GET /api/users
+    PUT /api/users/{userId}
+    DELETE /api/users/{userId}
+    POST /api/users/{userId}/addresses
+    GET /api/users/search
+    GET /api/users/{userId}/exists
+end note
+
+@enduml
+
+@startuml payment-service-detail
+!theme aws-orange
+title Payment Service - Detailed Architecture (Reactive)
+
+package "Payment Service" {
+    [PaymentController] <<RestController>>
+    [PaymentProcessingService] <<Service>>
+    [PaymentQueryService] <<Service>>
+    [OrderEventListener] <<KafkaListener>>
+
+    package "Reactive Repositories" {
+        [PaymentTransactionRepository] <<ReactiveRepository>>
+        [OrderEventRepository] <<ReactiveRepository>>
+    }
+
+    package "Domain Models" {
+        [PaymentTransaction] <<Document>>
+        [OrderEvent] <<Document>>
+    }
+
+    package "DTOs" {
+        [PaymentResponse] <<DTO>>
+        [PaymentStats] <<DTO>>
+    }
+
+    package "External Payment" {
+        [PaymentGatewayService] <<Service>>
+        [PaymentProviderClient] <<WebClient>>
+    }
+
+    package "Event Processing" {
+        [EventProcessor] <<Component>>
+        [PaymentEventPublisher] <<Component>>
+    }
+}
+
+package "External Dependencies" {
+    database "MongoDB" as mongo_payment {
+        [paymentTransactions collection]
+        [orderEvents collection]
+    }
+
+    queue "Kafka" as kafka_payment {
+        [order-events topic]
+        [payment-events topic]
+    }
+
+    cloud "Payment Gateway" as payment_gateway {
+        [Stripe/PayPal API]
+    }
+}
+
+' Controller connections (Reactive)
+[PaymentController] --> [PaymentQueryService] : reactive queries
+[PaymentController] --> [PaymentProcessingService] : payment processing
+
+' Service connections
+[PaymentQueryService] --> [PaymentTransactionRepository] : Flux/Mono queries
+[PaymentQueryService] --> [OrderEventRepository] : event queries
+[PaymentProcessingService] --> [PaymentTransactionRepository] : reactive saves
+[PaymentProcessingService] --> [PaymentGatewayService] : external payments
+[PaymentProcessingService] --> [PaymentEventPublisher] : publishes events
+
+' Event processing
+[OrderEventListener] --> [EventProcessor] : processes order events
+[EventProcessor] --> [PaymentProcessingService] : triggers payments
+[PaymentEventPublisher] --> kafka_payment : publishes payment events
+
+' External connections
+[PaymentGatewayService] --> [PaymentProviderClient] : WebClient calls
+[PaymentProviderClient] --> payment_gateway : HTTP/REST
+
+' Data connections (Reactive)
+[PaymentTransactionRepository] --> mongo_payment : Reactive MongoDB
+[OrderEventRepository] --> mongo_payment : Reactive MongoDB
+[OrderEventListener] --> kafka_payment : consumes events
+
+' Streaming endpoints
+note right of [PaymentController]
+    GET /api/payments/orders/stream (SSE)
+    GET /api/payments/orders/stream/user/{userId} (SSE)
+    GET /api/payments/transactions/stream (SSE)
+    GET /api/payments/orders
+    GET /api/payments/transactions
+    POST /api/payments/transactions/{id}/retry
+end note
+
+@enduml
+
+@startuml service-communication-flow
+!theme aws-orange
+title Service Communication Flow - Order Creation
+
+actor User as user
+participant "Order Service" as order
+participant "User Service" as user_service
+participant "Inventory Service" as inventory
+participant "Payment Service" as payment
+database "PostgreSQL" as db_order
+database "PostgreSQL" as db_inventory
+database "MongoDB" as db_payment
+queue "Kafka" as kafka
+database "Redis Cache" as redis
+
+user -> order: POST /api/orders
+activate order
+
+' User validation with caching
+order -> redis: Check user cache
+alt User not in cache
+    order -> user_service: GET /api/users/{userId}/exists
+    activate user_service
+    user_service -> db_order: Query user
+    user_service --> order: User exists response
+    deactivate user_service
+    order -> redis: Cache user data
+end
+
+' Inventory validation with circuit breaker
+order -> inventory: POST /api/inventory/check (with Circuit Breaker)
+activate inventory
+inventory -> db_inventory: Check stock availability
+inventory --> order: Stock availability response
+deactivate inventory
+
+' Create order
+order -> db_order: Save order and order items
+order -> kafka: Publish OrderCreatedEvent
+order --> user: Order created response
+deactivate order
+
+' Async payment processing
+kafka -> payment: Consume OrderCreatedEvent
+activate payment
+payment -> db_payment: Save order event
+payment -> payment: Process payment asynchronously
+payment -> db_payment: Save payment transaction
+payment -> kafka: Publish PaymentProcessedEvent
+deactivate payment
+
+' Update order status
+kafka -> order: Consume PaymentProcessedEvent
+activate order
+order -> db_order: Update order status
+order -> redis: Evict cached data
+deactivate order
+
+@enduml
+
+@startuml deployment-architecture
+!theme aws-orange
+title Deployment Architecture
+
+cloud "Container Orchestration" {
+    node "Kubernetes Cluster" {
+
+        package "Order Service Pod" {
+            [Order Service]
+            [Order Service Replica 1]
+            [Order Service Replica 2]
+        }
+
+        package "Inventory Service Pod" {
+            [Inventory Service]
+            [Inventory Service Replica 1]
+        }
+
+        package "User Service Pod" {
+            [User Service]
+            [User Service Replica 1]
+        }
+
+        package "Payment Service Pod" {
+            [Payment Service]
+            [Payment Service Replica 1]
+        }
+
+        package "Infrastructure Pods" {
+            [Kafka Broker 1]
+            [Kafka Broker 2]
+            [Kafka Broker 3]
+            [Axon Server]
+        }
+    }
+
+    package "Data Layer" {
+        database "PostgreSQL Cluster" as pg_cluster {
+            [Order DB]
+            [Inventory DB]
+            [User DB]
+        }
+
+        database "MongoDB Replica Set" as mongo_cluster {
+            [Payment DB Primary]
+            [Payment DB Secondary 1]
+            [Payment DB Secondary 2]
+        }
+
+        database "Redis Cluster" as redis_cluster {
+            [Redis Master]
+            [Redis Slave 1]
+            [Redis Slave 2]
+        }
+    }
+
+    package "Monitoring Stack" {
+        [Prometheus]
+        [Grafana]
+        [Jaeger]
+        [ELK Stack]
+    }
+
+    package "Load Balancer" {
+        [Nginx Ingress]
+        [Service Mesh (Istio)]
+    }
+}
+
+[Nginx Ingress] --> [Order Service]
+[Nginx Ingress] --> [Inventory Service]  
+[Nginx Ingress] --> [User Service]
+[Nginx Ingress] --> [Payment Service]
+
+[Order Service] --> pg_cluster
+[Inventory Service] --> pg_cluster
+[User Service] --> pg_cluster
+[Payment Service] --> mongo_cluster
+
+[Order Service] --> redis_cluster
+[Inventory Service] --> redis_cluster
+[User Service] --> redis_cluster
+
+[Order Service] --> [Kafka Broker 1]
+[Payment Service] --> [Kafka Broker 1]
+[Order Service] --> [Axon Server]
+
+@enduml
